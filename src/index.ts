@@ -34,10 +34,28 @@ const main = async () => {
 
     const RedisStore = connectRedis(session);
 
-    app.use(cors({
-        credentials: true,
-        origin: "http://localhost:3000"
-    }));
+    app.set("trust proxy", 1)
+
+    app.use(
+        cors({
+            credentials: true,
+            origin:
+                process.env.NODE_ENV === "production"
+                    ? "https://www.ianlikono.herokuapp.com"
+                    : "http://localhost:3000",
+        })
+    );
+
+    app.use((req, _, next) => {
+        const authorization = req.headers.authorization;
+        if (authorization) {
+            try {
+                const qid = authorization.split(' ')[1];
+                req.headers.cookie = `qid=${qid}`
+            } catch (_) { }
+        }
+        return next();
+    })
 
     app.use(
         session({
@@ -63,7 +81,6 @@ const main = async () => {
         callbackURL: 'http://localhost:4000/callback'
     },
         async (accessToken, refreshToken, _extraParams, profile: any, cb) => {
-            console.log("JSON", profile._json);
             let user = await User.findOne({ where: { email: profile._json.email } })
             if (!user) {
                 user = await User.create({
@@ -89,12 +106,11 @@ const main = async () => {
     app.use(passport.initialize())
 
     app.get('/callback',
-        passport.authenticate('auth0', { failureRedirect: '/login' }),
+        passport.authenticate('auth0', { failureRedirect: '/login', session: false }),
         (req: any, res) => {
             if (!req.user) {
                 throw new Error('user null');
             }
-            console.log(req.user)
             req.session.userId = req.user.user.id;
             req.session.accessToken = req.user.accessToken;
             req.session.refreshToken = req.user.refreshToken;
@@ -108,7 +124,7 @@ const main = async () => {
         });
 
 
-    apolloServer.applyMiddleware({ app });
+    apolloServer.applyMiddleware({ app, cors: false });
 
     app.listen(4000, () => {
         console.log("server started on http://localhost:4000/graphql");
